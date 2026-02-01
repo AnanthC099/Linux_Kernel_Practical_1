@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linux Kernel GPIO LED Driver - Complete Code Explanation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        h1, h2, h3, h4 { color: #2c3e50; margin-top: 1.5em; }
+        h1 { border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h2 { border-bottom: 1px solid #bdc3c7; padding-bottom: 5px; }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 0.85em;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th { background: #3498db; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        hr { border: none; border-top: 1px solid #eee; margin: 30px 0; }
+        .diagram {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Consolas', monospace;
+            white-space: pre;
+            overflow-x: auto;
+            font-size: 0.8em;
+            line-height: 1.4;
+        }
+        @media print {
+            body { max-width: none; padding: 0; }
+            pre { white-space: pre-wrap; word-wrap: break-word; }
+            h1, h2, h3 { page-break-after: avoid; }
+            pre, table { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+
+<h1>Linux Kernel GPIO LED Driver - Complete Code Explanation</h1>
+
+<h2>Project Overview</h2>
+<p>This project is a <strong>Linux Kernel Character Device Driver</strong> for Raspberry Pi 4 that controls an LED connected to GPIO pin 23 (Physical Pin 16). It demonstrates fundamental kernel programming concepts including character devices, IOCTL interface, GPIO control, and kernel timers.</p>
+
+<h3>Project Structure</h3>
+<pre><code>Linux_Kernel_Practical_1/
+├── gpio_led_ioctl.h      - Shared header file (IOCTL definitions)
+├── gpio_led_driver.c     - Kernel module/driver
+├── gpio_led_app.c        - User-space control application
+├── Makefile              - Build system
+└── CODE_EXPLANATION.md   - This documentation</code></pre>
+
+<h3>Hardware Connection</h3>
+<div class="diagram">Raspberry Pi 4 GPIO Header
+┌─────────────────────────────┐
+│  Physical Pin 16 (BCM 23)   │──── 330Ω Resistor ──── LED Anode
+│  GND Pin                    │──── LED Cathode
+└─────────────────────────────┘</div>
+
+<hr>
+
+<h2>File 1: gpio_led_ioctl.h (Shared Header)</h2>
+<p>This header is shared between the kernel driver and user-space application to ensure consistent definitions.</p>
+
+<h3>Complete Source Code</h3>
+<pre><code>/* gpio_led_ioctl.h
+ *
+ * Shared header between kernel driver and user-space application.
+ * Defines IOCTL commands for GPIO LED control on Raspberry Pi 4.
+ *
+ * Hardware: LED on Physical Pin 16 (BCM GPIO 23)
+ */
+
+#ifndef _GPIO_LED_IOCTL_H
+#define _GPIO_LED_IOCTL_H
+
+#ifdef __KERNEL__
+#include &lt;linux/ioctl.h&gt;
+#else
+#include &lt;sys/ioctl.h&gt;
+#endif
+
+/* Magic number for our driver */
+#define GPIO_LED_MAGIC  'L'
+
+/* LED states */
+#define LED_OFF         0
+#define LED_ON          1
+
+/* IOCTL Commands */
+#define GPIO_LED_SET_ON         _IO(GPIO_LED_MAGIC, 0)
+#define GPIO_LED_SET_OFF        _IO(GPIO_LED_MAGIC, 1)
+#define GPIO_LED_TOGGLE         _IO(GPIO_LED_MAGIC, 2)
+#define GPIO_LED_GET_STATE      _IOR(GPIO_LED_MAGIC, 3, int)
+#define GPIO_LED_SET_STATE      _IOW(GPIO_LED_MAGIC, 4, int)
+#define GPIO_LED_SET_BLINK      _IOW(GPIO_LED_MAGIC, 5, int)
+#define GPIO_LED_STOP_BLINK     _IO(GPIO_LED_MAGIC, 6)
+
+#define GPIO_LED_MAX_CMD        6
+#define DEVICE_NAME             "gpio_led"
+#define DEVICE_PATH             "/dev/" DEVICE_NAME
+#define LED_GPIO_BCM            23
+
+#endif /* _GPIO_LED_IOCTL_H */</code></pre>
+
+<h3>Line-by-Line Explanation</h3>
+<table>
+<tr><th>Lines</th><th>Code</th><th>Explanation</th></tr>
+<tr><td>1-7</td><td>Comment block</td><td>File description and hardware info</td></tr>
+<tr><td>9-10</td><td><code>#ifndef _GPIO_LED_IOCTL_H</code></td><td><strong>Include guard</strong> - prevents multiple inclusions of the same header file</td></tr>
+<tr><td>12-16</td><td><code>#ifdef __KERNEL__</code></td><td><strong>Conditional compilation</strong> - <code>__KERNEL__</code> is defined when compiling kernel code. Uses appropriate header for each context</td></tr>
+<tr><td>19</td><td><code>#define GPIO_LED_MAGIC 'L'</code></td><td><strong>Magic number</strong> - unique identifier ('L' = 0x4C) for this driver's IOCTL commands</td></tr>
+<tr><td>22-23</td><td><code>LED_OFF</code>, <code>LED_ON</code></td><td><strong>State constants</strong> - 0 for OFF, 1 for ON</td></tr>
+<tr><td>26-32</td><td>IOCTL Command definitions</td><td>Uses <code>_IO</code>, <code>_IOR</code>, <code>_IOW</code> macros (explained below)</td></tr>
+<tr><td>34</td><td><code>GPIO_LED_MAX_CMD</code></td><td>Maximum command number for validation</td></tr>
+<tr><td>35-36</td><td>Device name and path</td><td>Used to create/access <code>/dev/gpio_led</code></td></tr>
+<tr><td>37</td><td><code>LED_GPIO_BCM</code></td><td>BCM GPIO pin number 23</td></tr>
+</table>
+
+<hr>
+
+<h2>Understanding IOCTL Macros</h2>
+
+<h3>The _IO Macro Family</h3>
+<p>IOCTL (Input/Output Control) macros create unique 32-bit command numbers.</p>
+
+<table>
+<tr><th>Macro</th><th>Meaning</th><th>Data Direction</th><th>Example</th></tr>
+<tr><td><code>_IO(type, nr)</code></td><td>No data transfer</td><td>None</td><td><code>_IO('L', 0)</code></td></tr>
+<tr><td><code>_IOR(type, nr, datatype)</code></td><td>Read from kernel</td><td>Kernel → User</td><td><code>_IOR('L', 3, int)</code></td></tr>
+<tr><td><code>_IOW(type, nr, datatype)</code></td><td>Write to kernel</td><td>User → Kernel</td><td><code>_IOW('L', 4, int)</code></td></tr>
+<tr><td><code>_IOWR(type, nr, datatype)</code></td><td>Read and Write</td><td>Both directions</td><td><code>_IOWR('L', 5, struct data)</code></td></tr>
+</table>
+
+<h3>IOCTL Command Structure (32 bits)</h3>
+<div class="diagram">┌────────────┬────────────┬────────────┬────────────┐
+│  Direction │    Size    │    Type    │   Number   │
+│   2 bits   │  14 bits   │   8 bits   │   8 bits   │
+└────────────┴────────────┴────────────┴────────────┘
+   bits 31-30   bits 29-16   bits 15-8    bits 7-0</div>
+
+<table>
+<tr><th>Field</th><th>Bits</th><th>Description</th></tr>
+<tr><td><strong>Direction</strong></td><td>31-30</td><td>00=none, 01=write, 10=read, 11=read/write</td></tr>
+<tr><td><strong>Size</strong></td><td>29-16</td><td>Size of data being transferred (0 for <code>_IO</code>)</td></tr>
+<tr><td><strong>Type</strong></td><td>15-8</td><td>Magic number (unique identifier for driver)</td></tr>
+<tr><td><strong>Number</strong></td><td>7-0</td><td>Command sequence number (0, 1, 2, ...)</td></tr>
+</table>
+
+<h3>Helper Macros for Decoding</h3>
+<pre><code>_IOC_TYPE(cmd)  // Extract the magic number (type)
+_IOC_NR(cmd)    // Extract the command number
+_IOC_SIZE(cmd)  // Extract the data size
+_IOC_DIR(cmd)   // Extract the direction</code></pre>
+
+<h3>Why Use IOCTL Macros?</h3>
+<ol>
+<li><strong>Uniqueness</strong>: Magic number + command number prevents collisions between drivers</li>
+<li><strong>Validation</strong>: Kernel can verify commands belong to correct driver</li>
+<li><strong>Self-documenting</strong>: Macro name indicates data direction</li>
+<li><strong>Standardization</strong>: Consistent interface across all Linux drivers</li>
+</ol>
+
+<hr>
+
+<h2>File 2: gpio_led_driver.c (Kernel Module)</h2>
+<p>This is the core kernel module that creates a character device for LED control.</p>
+
+<h3>Section 1: Headers and Module Metadata</h3>
+<pre><code>#include &lt;linux/module.h&gt;      // Core module macros
+#include &lt;linux/kernel.h&gt;      // Kernel logging (pr_info, pr_err)
+#include &lt;linux/init.h&gt;        // __init, __exit macros
+#include &lt;linux/fs.h&gt;          // File operations, register_chrdev
+#include &lt;linux/cdev.h&gt;        // Character device structure
+#include &lt;linux/device.h&gt;      // Device class, device_create
+#include &lt;linux/gpio.h&gt;        // Legacy GPIO API
+#include &lt;linux/gpio/consumer.h&gt; // Descriptor-based GPIO API
+#include &lt;linux/uaccess.h&gt;     // copy_to_user, copy_from_user
+#include &lt;linux/timer.h&gt;       // Kernel timers
+#include &lt;linux/mutex.h&gt;       // Mutex locks
+#include &lt;linux/err.h&gt;         // IS_ERR, PTR_ERR macros
+
+#include "gpio_led_ioctl.h"
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Anjaneya");
+MODULE_DESCRIPTION("GPIO LED Driver for Raspberry Pi 4");
+MODULE_VERSION("1.0");</code></pre>
+
+<table>
+<tr><th>Header</th><th>Purpose</th></tr>
+<tr><td><code>linux/module.h</code></td><td>MODULE_LICENSE, MODULE_AUTHOR, module_init, module_exit</td></tr>
+<tr><td><code>linux/kernel.h</code></td><td>pr_info(), pr_err() logging functions</td></tr>
+<tr><td><code>linux/init.h</code></td><td><code>__init</code> and <code>__exit</code> section markers</td></tr>
+<tr><td><code>linux/fs.h</code></td><td>struct file_operations, register_chrdev_region</td></tr>
+<tr><td><code>linux/cdev.h</code></td><td>struct cdev, cdev_init, cdev_add</td></tr>
+<tr><td><code>linux/device.h</code></td><td>class_create, device_create for udev</td></tr>
+<tr><td><code>linux/gpio.h</code></td><td>gpio_request, gpio_direction_output (legacy API)</td></tr>
+<tr><td><code>linux/gpio/consumer.h</code></td><td>gpiod_set_value (descriptor API)</td></tr>
+<tr><td><code>linux/uaccess.h</code></td><td>copy_to_user, copy_from_user</td></tr>
+<tr><td><code>linux/timer.h</code></td><td>timer_setup, mod_timer, del_timer_sync</td></tr>
+<tr><td><code>linux/mutex.h</code></td><td>mutex_init, mutex_lock, mutex_unlock</td></tr>
+</table>
+
+<h3>Section 2: Driver Private Data Structure</h3>
+<pre><code>struct gpio_led_dev {
+    dev_t           devno;          /* Major:Minor device number          */
+    struct cdev     cdev;           /* Character device structure          */
+    struct class    *class;         /* Device class (for /sys/class entry) */
+    struct device   *device;        /* Device (for /dev entry via udev)   */
+    struct gpio_desc *gpio;         /* GPIO descriptor (new API)          */
+
+    int             led_state;      /* Current LED state: 0=OFF, 1=ON    */
+    struct mutex    lock;           /* Protects led_state and GPIO access */
+
+    /* Blink support */
+    struct timer_list blink_timer;  /* Kernel timer for blinking          */
+    int             blinking;       /* 1 = blink active, 0 = stopped     */
+    unsigned long   blink_period_jiffies; /* Half-period in jiffies       */
+};
+
+static struct gpio_led_dev *led_dev;</code></pre>
+
+<table>
+<tr><th>Field</th><th>Type</th><th>Purpose</th></tr>
+<tr><td><code>devno</code></td><td><code>dev_t</code></td><td>Combined major:minor device number</td></tr>
+<tr><td><code>cdev</code></td><td><code>struct cdev</code></td><td>Character device kernel structure</td></tr>
+<tr><td><code>class</code></td><td><code>struct class *</code></td><td>Creates <code>/sys/class/gpio_led</code></td></tr>
+<tr><td><code>device</code></td><td><code>struct device *</code></td><td>Creates <code>/dev/gpio_led</code> via udev</td></tr>
+<tr><td><code>gpio</code></td><td><code>struct gpio_desc *</code></td><td>GPIO descriptor for modern API</td></tr>
+<tr><td><code>led_state</code></td><td><code>int</code></td><td>Cached LED state (0 or 1)</td></tr>
+<tr><td><code>lock</code></td><td><code>struct mutex</code></td><td>Thread synchronization</td></tr>
+<tr><td><code>blink_timer</code></td><td><code>struct timer_list</code></td><td>Kernel timer for blinking</td></tr>
+<tr><td><code>blinking</code></td><td><code>int</code></td><td>Blink active flag</td></tr>
+<tr><td><code>blink_period_jiffies</code></td><td><code>unsigned long</code></td><td>Timer period in jiffies</td></tr>
+</table>
+
+<h3>Section 3: GPIO Helper Functions</h3>
+<pre><code>static void gpio_led_set(struct gpio_led_dev *dev, int state)
+{
+    dev-&gt;led_state = !!state;  /* Normalize to 0 or 1 */
+    gpiod_set_value(dev-&gt;gpio, dev-&gt;led_state);
+}
+
+static int gpio_led_get(struct gpio_led_dev *dev)
+{
+    return dev-&gt;led_state;
+}
+
+static void gpio_led_toggle(struct gpio_led_dev *dev)
+{
+    gpio_led_set(dev, !dev-&gt;led_state);
+}</code></pre>
+
+<table>
+<tr><th>Function</th><th>Purpose</th><th>Notes</th></tr>
+<tr><td><code>gpio_led_set()</code></td><td>Sets LED state</td><td><code>!!state</code> converts any non-zero to 1</td></tr>
+<tr><td><code>gpio_led_get()</code></td><td>Returns current state</td><td>Reads cached value</td></tr>
+<tr><td><code>gpio_led_toggle()</code></td><td>Inverts LED state</td><td>Calls <code>gpio_led_set()</code> with inverted value</td></tr>
+</table>
+
+<h3>Section 4: Blink Timer</h3>
+<pre><code>static void blink_timer_callback(struct timer_list *t)
+{
+    struct gpio_led_dev *dev = from_timer(dev, t, blink_timer);
+
+    /* Timer callbacks run in softirq context — cannot use mutex */
+    dev-&gt;led_state = !dev-&gt;led_state;
+    gpiod_set_value(dev-&gt;gpio, dev-&gt;led_state);
+
+    /* Re-arm the timer if still blinking */
+    if (dev-&gt;blinking)
+        mod_timer(&amp;dev-&gt;blink_timer, jiffies + dev-&gt;blink_period_jiffies);
+}
+
+static void start_blink(struct gpio_led_dev *dev, int period_ms)
+{
+    dev-&gt;blink_period_jiffies = msecs_to_jiffies(period_ms / 2);
+    if (dev-&gt;blink_period_jiffies &lt; 1)
+        dev-&gt;blink_period_jiffies = 1;
+
+    dev-&gt;blinking = 1;
+    mod_timer(&amp;dev-&gt;blink_timer, jiffies + dev-&gt;blink_period_jiffies);
+}
+
+static void stop_blink(struct gpio_led_dev *dev)
+{
+    dev-&gt;blinking = 0;
+    del_timer_sync(&amp;dev-&gt;blink_timer);
+}</code></pre>
+
+<p><strong>Key Concepts:</strong></p>
+<table>
+<tr><th>Concept</th><th>Explanation</th></tr>
+<tr><td><code>from_timer()</code></td><td>Macro to get container structure from timer pointer</td></tr>
+<tr><td><code>jiffies</code></td><td>Kernel's internal time counter (ticks since boot)</td></tr>
+<tr><td><code>msecs_to_jiffies()</code></td><td>Converts milliseconds to jiffies</td></tr>
+<tr><td><code>mod_timer()</code></td><td>Modifies/arms timer with new expiration time</td></tr>
+<tr><td><code>del_timer_sync()</code></td><td>Deletes timer and waits for callback to finish</td></tr>
+<tr><td><code>softirq context</code></td><td>Timer callbacks run in interrupt context (cannot sleep)</td></tr>
+</table>
+
+<h3>Section 5: File Operations</h3>
+
+<h4>open() and release()</h4>
+<pre><code>static int gpio_led_open(struct inode *inode, struct file *filp)
+{
+    filp-&gt;private_data = led_dev;
+    pr_info("gpio_led: Device opened\n");
+    return 0;
+}
+
+static int gpio_led_release(struct inode *inode, struct file *filp)
+{
+    pr_info("gpio_led: Device closed\n");
+    return 0;
+}</code></pre>
+
+<h4>read() - Returns LED state as string</h4>
+<pre><code>static ssize_t gpio_led_read(struct file *filp, char __user *buf,
+                              size_t count, loff_t *ppos)
+{
+    struct gpio_led_dev *dev = filp-&gt;private_data;
+    char state_str[4];
+    int len;
+
+    if (*ppos &gt; 0)
+        return 0;  /* EOF on subsequent reads */
+
+    mutex_lock(&amp;dev-&gt;lock);
+    len = snprintf(state_str, sizeof(state_str), "%d\n", dev-&gt;led_state);
+    mutex_unlock(&amp;dev-&gt;lock);
+
+    if (count &lt; len)
+        return -EINVAL;
+
+    if (copy_to_user(buf, state_str, len))
+        return -EFAULT;
+
+    *ppos += len;
+    return len;
+}</code></pre>
+
+<p><strong>Explanation:</strong></p>
+<ul>
+<li><code>*ppos &gt; 0</code>: Returns 0 (EOF) on subsequent reads</li>
+<li><code>copy_to_user()</code>: Safely copies data from kernel to user space</li>
+<li>Returns <code>-EFAULT</code> if copy fails (bad user pointer)</li>
+</ul>
+
+<h4>write() - Sets LED state from character</h4>
+<pre><code>static ssize_t gpio_led_write(struct file *filp, const char __user *buf,
+                               size_t count, loff_t *ppos)
+{
+    struct gpio_led_dev *dev = filp-&gt;private_data;
+    char val;
+
+    if (count &lt; 1)
+        return -EINVAL;
+
+    if (copy_from_user(&amp;val, buf, 1))
+        return -EFAULT;
+
+    mutex_lock(&amp;dev-&gt;lock);
+    if (val == '1')
+        gpio_led_set(dev, LED_ON);
+    else if (val == '0')
+        gpio_led_set(dev, LED_OFF);
+    else {
+        mutex_unlock(&amp;dev-&gt;lock);
+        return -EINVAL;
+    }
+    mutex_unlock(&amp;dev-&gt;lock);
+
+    return count;
+}</code></pre>
+
+<p><strong>Explanation:</strong></p>
+<ul>
+<li><code>copy_from_user()</code>: Safely copies data from user to kernel space</li>
+<li>Accepts '0' or '1' character only</li>
+<li>Returns <code>-EINVAL</code> for invalid input</li>
+</ul>
+
+<h4>ioctl() - Main control interface</h4>
+<pre><code>static long gpio_led_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    struct gpio_led_dev *dev = filp-&gt;private_data;
+    int state;
+    int period_ms;
+    int ret = 0;
+
+    /* Validate magic number and command range */
+    if (_IOC_TYPE(cmd) != GPIO_LED_MAGIC)
+        return -ENOTTY;
+    if (_IOC_NR(cmd) &gt; GPIO_LED_MAX_CMD)
+        return -ENOTTY;
+
+    mutex_lock(&amp;dev-&gt;lock);
+
+    switch (cmd) {
+    case GPIO_LED_SET_ON:
+        stop_blink(dev);
+        gpio_led_set(dev, LED_ON);
+        break;
+
+    case GPIO_LED_SET_OFF:
+        stop_blink(dev);
+        gpio_led_set(dev, LED_OFF);
+        break;
+
+    case GPIO_LED_TOGGLE:
+        stop_blink(dev);
+        gpio_led_toggle(dev);
+        break;
+
+    case GPIO_LED_GET_STATE:
+        state = gpio_led_get(dev);
+        if (copy_to_user((int __user *)arg, &amp;state, sizeof(int)))
+            ret = -EFAULT;
+        break;
+
+    case GPIO_LED_SET_STATE:
+        if (copy_from_user(&amp;state, (int __user *)arg, sizeof(int))) {
+            ret = -EFAULT;
+            break;
+        }
+        if (state != LED_ON &amp;&amp; state != LED_OFF) {
+            ret = -EINVAL;
+            break;
+        }
+        stop_blink(dev);
+        gpio_led_set(dev, state);
+        break;
+
+    case GPIO_LED_SET_BLINK:
+        if (copy_from_user(&amp;period_ms, (int __user *)arg, sizeof(int))) {
+            ret = -EFAULT;
+            break;
+        }
+        if (period_ms &lt; 50 || period_ms &gt; 10000) {
+            ret = -EINVAL;
+            break;
+        }
+        start_blink(dev, period_ms);
+        break;
+
+    case GPIO_LED_STOP_BLINK:
+        stop_blink(dev);
+        break;
+
+    default:
+        ret = -ENOTTY;
+        break;
+    }
+
+    mutex_unlock(&amp;dev-&gt;lock);
+    return ret;
+}</code></pre>
+
+<p><strong>IOCTL Command Summary:</strong></p>
+<table>
+<tr><th>Command</th><th>Action</th><th>Data Transfer</th></tr>
+<tr><td><code>GPIO_LED_SET_ON</code></td><td>Turn LED on, stop blink</td><td>None</td></tr>
+<tr><td><code>GPIO_LED_SET_OFF</code></td><td>Turn LED off, stop blink</td><td>None</td></tr>
+<tr><td><code>GPIO_LED_TOGGLE</code></td><td>Toggle LED, stop blink</td><td>None</td></tr>
+<tr><td><code>GPIO_LED_GET_STATE</code></td><td>Return current state</td><td><code>copy_to_user()</code></td></tr>
+<tr><td><code>GPIO_LED_SET_STATE</code></td><td>Set specific state</td><td><code>copy_from_user()</code></td></tr>
+<tr><td><code>GPIO_LED_SET_BLINK</code></td><td>Start blinking (50-10000ms)</td><td><code>copy_from_user()</code></td></tr>
+<tr><td><code>GPIO_LED_STOP_BLINK</code></td><td>Stop blinking</td><td>None</td></tr>
+</table>
+
+<h4>File Operations Structure</h4>
+<pre><code>static const struct file_operations gpio_led_fops = {
+    .owner          = THIS_MODULE,
+    .open           = gpio_led_open,
+    .release        = gpio_led_release,
+    .read           = gpio_led_read,
+    .write          = gpio_led_write,
+    .unlocked_ioctl = gpio_led_ioctl,
+};</code></pre>
+
+<h3>Section 6: Module Initialization</h3>
+<pre><code>static int __init gpio_led_init(void)
+{
+    int ret;
+
+    /* Step 1: Allocate driver private data */
+    led_dev = kzalloc(sizeof(*led_dev), GFP_KERNEL);
+    if (!led_dev)
+        return -ENOMEM;
+
+    mutex_init(&amp;led_dev-&gt;lock);
+
+    /* Step 2: Request and configure GPIO */
+    if (!gpio_is_valid(LED_GPIO_BCM)) {
+        ret = -ENODEV;
+        goto err_free_dev;
+    }
+
+    ret = gpio_request(LED_GPIO_BCM, "led_gpio_23");
+    if (ret)
+        goto err_free_dev;
+
+    ret = gpio_direction_output(LED_GPIO_BCM, 0);
+    if (ret)
+        goto err_free_gpio;
+
+    /* Step 3: Get GPIO descriptor */
+    led_dev-&gt;gpio = gpio_to_desc(LED_GPIO_BCM);
+    if (!led_dev-&gt;gpio) {
+        ret = -ENODEV;
+        goto err_free_gpio;
+    }
+
+    led_dev-&gt;led_state = LED_OFF;
+
+    /* Step 4: Allocate major:minor number */
+    ret = alloc_chrdev_region(&amp;led_dev-&gt;devno, 0, 1, DEVICE_NAME);
+    if (ret &lt; 0)
+        goto err_free_gpio;
+
+    /* Step 5: Initialize and add character device */
+    cdev_init(&amp;led_dev-&gt;cdev, &amp;gpio_led_fops);
+    led_dev-&gt;cdev.owner = THIS_MODULE;
+
+    ret = cdev_add(&amp;led_dev-&gt;cdev, led_dev-&gt;devno, 1);
+    if (ret &lt; 0)
+        goto err_unreg_chrdev;
+
+    /* Step 6: Create device class */
+    led_dev-&gt;class = class_create(DEVICE_NAME);
+    if (IS_ERR(led_dev-&gt;class)) {
+        ret = PTR_ERR(led_dev-&gt;class);
+        goto err_cdev_del;
+    }
+
+    /* Step 7: Create device node */
+    led_dev-&gt;device = device_create(led_dev-&gt;class, NULL,
+                                     led_dev-&gt;devno, NULL, DEVICE_NAME);
+    if (IS_ERR(led_dev-&gt;device)) {
+        ret = PTR_ERR(led_dev-&gt;device);
+        goto err_class_destroy;
+    }
+
+    /* Step 8: Initialize blink timer */
+    timer_setup(&amp;led_dev-&gt;blink_timer, blink_timer_callback, 0);
+    led_dev-&gt;blinking = 0;
+
+    pr_info("gpio_led: Driver loaded. Device: /dev/%s\n", DEVICE_NAME);
+    return 0;
+
+/* Error cleanup (reverse order) */
+err_class_destroy:
+    class_destroy(led_dev-&gt;class);
+err_cdev_del:
+    cdev_del(&amp;led_dev-&gt;cdev);
+err_unreg_chrdev:
+    unregister_chrdev_region(led_dev-&gt;devno, 1);
+err_free_gpio:
+    gpio_free(LED_GPIO_BCM);
+err_free_dev:
+    kfree(led_dev);
+    return ret;
+}</code></pre>
+
+<p><strong>Initialization Steps:</strong></p>
+<div class="diagram">┌──────────────────────────────────────────────────────────┐
+│ Step 1: kzalloc() - Allocate driver structure            │
+├──────────────────────────────────────────────────────────┤
+│ Step 2: gpio_request() - Request GPIO pin                │
+├──────────────────────────────────────────────────────────┤
+│ Step 3: gpio_direction_output() - Set as output          │
+├──────────────────────────────────────────────────────────┤
+│ Step 4: gpio_to_desc() - Get GPIO descriptor             │
+├──────────────────────────────────────────────────────────┤
+│ Step 5: alloc_chrdev_region() - Get major:minor number   │
+├──────────────────────────────────────────────────────────┤
+│ Step 6: cdev_init() + cdev_add() - Register char device  │
+├──────────────────────────────────────────────────────────┤
+│ Step 7: class_create() - Create /sys/class/gpio_led      │
+├──────────────────────────────────────────────────────────┤
+│ Step 8: device_create() - Create /dev/gpio_led via udev  │
+├──────────────────────────────────────────────────────────┤
+│ Step 9: timer_setup() - Initialize blink timer           │
+└──────────────────────────────────────────────────────────┘</div>
+
+<p><strong>Error Handling Pattern (goto chain):</strong></p>
+<p>On any error, the code jumps to a cleanup label that undoes all previous steps in reverse order. This is standard Linux kernel practice.</p>
+
+<h3>Section 7: Module Exit</h3>
+<pre><code>static void __exit gpio_led_exit(void)
+{
+    /* Stop blink timer */
+    stop_blink(led_dev);
+
+    /* Turn LED off before unloading */
+    gpiod_set_value(led_dev-&gt;gpio, 0);
+
+    /* Tear down in reverse order of init */
+    device_destroy(led_dev-&gt;class, led_dev-&gt;devno);
+    class_destroy(led_dev-&gt;class);
+    cdev_del(&amp;led_dev-&gt;cdev);
+    unregister_chrdev_region(led_dev-&gt;devno, 1);
+    gpio_free(LED_GPIO_BCM);
+    kfree(led_dev);
+
+    pr_info("gpio_led: Driver unloaded\n");
+}
+
+module_init(gpio_led_init);
+module_exit(gpio_led_exit);</code></pre>
+
+<p><strong>Cleanup is always in reverse order of initialization.</strong></p>
+
+<hr>
+
+<h2>File 3: gpio_led_app.c (User-Space Application)</h2>
+
+<h3>Section 1: Device Opening</h3>
+<pre><code>static int open_device(void)
+{
+    int fd = open(DEVICE_PATH, O_RDWR);
+    if (fd &lt; 0) {
+        perror("Failed to open " DEVICE_PATH);
+        fprintf(stderr, "Make sure the driver is loaded\n");
+    }
+    return fd;
+}</code></pre>
+<p>Opens <code>/dev/gpio_led</code> with read/write access. Returns file descriptor or -1 on error.</p>
+
+<h3>Section 2: IOCTL Wrapper Functions</h3>
+<pre><code>static int led_set_on(int fd)
+{
+    if (ioctl(fd, GPIO_LED_SET_ON) &lt; 0) {
+        perror("ioctl GPIO_LED_SET_ON");
+        return -1;
+    }
+    printf("LED turned ON\n");
+    return 0;
+}
+
+static int led_get_state(int fd)
+{
+    int state;
+    if (ioctl(fd, GPIO_LED_GET_STATE, &amp;state) &lt; 0) {
+        perror("ioctl GPIO_LED_GET_STATE");
+        return -1;
+    }
+    printf("LED state: %s (%d)\n", state ? "ON" : "OFF", state);
+    return state;
+}
+
+static int led_set_blink(int fd, int period_ms)
+{
+    if (ioctl(fd, GPIO_LED_SET_BLINK, &amp;period_ms) &lt; 0) {
+        perror("ioctl GPIO_LED_SET_BLINK");
+        return -1;
+    }
+    printf("LED blinking with period %d ms\n", period_ms);
+    return 0;
+}</code></pre>
+
+<p><strong>IOCTL Wrapper Summary:</strong></p>
+<table>
+<tr><th>Function</th><th>IOCTL Command</th><th>Data Passed</th></tr>
+<tr><td><code>led_set_on()</code></td><td><code>GPIO_LED_SET_ON</code></td><td>None</td></tr>
+<tr><td><code>led_set_off()</code></td><td><code>GPIO_LED_SET_OFF</code></td><td>None</td></tr>
+<tr><td><code>led_toggle()</code></td><td><code>GPIO_LED_TOGGLE</code></td><td>None</td></tr>
+<tr><td><code>led_get_state()</code></td><td><code>GPIO_LED_GET_STATE</code></td><td><code>&amp;state</code> (receives value)</td></tr>
+<tr><td><code>led_set_state()</code></td><td><code>GPIO_LED_SET_STATE</code></td><td><code>&amp;state</code> (sends value)</td></tr>
+<tr><td><code>led_set_blink()</code></td><td><code>GPIO_LED_SET_BLINK</code></td><td><code>&amp;period_ms</code></td></tr>
+<tr><td><code>led_stop_blink()</code></td><td><code>GPIO_LED_STOP_BLINK</code></td><td>None</td></tr>
+</table>
+
+<h3>Section 3: Read/Write Interface (Alternative to IOCTL)</h3>
+<pre><code>static int led_read_state(int fd)
+{
+    char buf[4];
+    lseek(fd, 0, SEEK_SET);  /* Reset file position */
+    read(fd, buf, sizeof(buf) - 1);
+    printf("LED state (via read): %s", buf);
+    return 0;
+}
+
+static int led_write_state(int fd, const char *val)
+{
+    write(fd, val, 1);
+    printf("LED set to %s via write()\n", (*val == '1') ? "ON" : "OFF");
+    return 0;
+}</code></pre>
+
+<h3>Section 4: Command-Line Mode</h3>
+<pre><code>static int handle_cli(int fd, int argc, char *argv[])
+{
+    if (strcmp(argv[1], "on") == 0)
+        return led_set_on(fd);
+    else if (strcmp(argv[1], "off") == 0)
+        return led_set_off(fd);
+    else if (strcmp(argv[1], "toggle") == 0)
+        return led_toggle(fd);
+    else if (strcmp(argv[1], "state") == 0)
+        return led_get_state(fd);
+    else if (strcmp(argv[1], "blink") == 0) {
+        if (argc &lt; 3) {
+            fprintf(stderr, "Usage: %s blink &lt;period_ms&gt;\n", argv[0]);
+            return -1;
+        }
+        return led_set_blink(fd, atoi(argv[2]));
+    } else if (strcmp(argv[1], "stop") == 0)
+        return led_stop_blink(fd);
+    // ...
+}</code></pre>
+
+<p><strong>Command-Line Usage:</strong></p>
+<pre><code>sudo ./gpio_led_app on          # Turn LED on
+sudo ./gpio_led_app off         # Turn LED off
+sudo ./gpio_led_app toggle      # Toggle LED state
+sudo ./gpio_led_app state       # Get current state
+sudo ./gpio_led_app blink 500   # Blink with 500ms period
+sudo ./gpio_led_app stop        # Stop blinking</code></pre>
+
+<h3>Section 5: Interactive Menu Mode</h3>
+<pre><code>static void print_menu(void)
+{
+    printf("╔══════════════════════════════════════════╗\n");
+    printf("║     GPIO LED Controller (BCM Pin 23)     ║\n");
+    printf("╠══════════════════════════════════════════╣\n");
+    printf("║  1. Turn LED ON          (ioctl)         ║\n");
+    printf("║  2. Turn LED OFF         (ioctl)         ║\n");
+    printf("║  3. Toggle LED           (ioctl)         ║\n");
+    printf("║  4. Get LED state        (ioctl)         ║\n");
+    printf("║  5. Set LED state        (ioctl)         ║\n");
+    printf("║  6. Start blink          (ioctl)         ║\n");
+    printf("║  7. Stop blink           (ioctl)         ║\n");
+    printf("║  8. Read state           (read syscall)  ║\n");
+    printf("║  9. Write state          (write syscall) ║\n");
+    printf("║  0. Exit                                 ║\n");
+    printf("╚══════════════════════════════════════════╝\n");
+}</code></pre>
+
+<h3>Section 6: Main Function</h3>
+<pre><code>int main(int argc, char *argv[])
+{
+    int fd = open_device();
+    if (fd &lt; 0)
+        return EXIT_FAILURE;
+
+    if (argc &gt; 1)
+        ret = handle_cli(fd, argc, argv);   /* Command-line mode */
+    else
+        interactive_mode(fd);                /* Interactive menu */
+
+    close(fd);
+    return (ret &lt; 0) ? EXIT_FAILURE : EXIT_SUCCESS;
+}</code></pre>
+
+<hr>
+
+<h2>File 4: Makefile (Build System)</h2>
+
+<h3>Complete Makefile</h3>
+<pre><code># Makefile for GPIO LED Driver
+
+obj-m := gpio_led_driver.o gpio_led_platform_driver.o
+
+KERNEL_DIR ?= /lib/modules/$(shell uname -r)/build
+DTC ?= dtc
+PWD := $(shell pwd)
+
+# Build kernel modules
+all:
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules
+
+# Build ONLY the legacy driver
+legacy:
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules obj-m=gpio_led_driver.o
+
+# Build ONLY the platform driver
+platform:
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules obj-m=gpio_led_platform_driver.o
+
+# Compile Device Tree overlay
+dtbo: gpio_led_overlay.dts
+	$(DTC) -@ -I dts -O dtb -o gpio_led_overlay.dtbo gpio_led_overlay.dts
+
+# Build user-space application
+app: gpio_led_app.c gpio_led_ioctl.h
+	$(CC) -Wall -Wextra -O2 -o gpio_led_app gpio_led_app.c
+
+# Build everything
+all-targets: all dtbo app
+
+# Install platform driver
+install-platform: platform dtbo
+	sudo cp gpio_led_overlay.dtbo /boot/overlays/
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules_install obj-m=gpio_led_platform_driver.o
+	depmod -a
+
+# Clean
+clean:
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
+	rm -f gpio_led_app gpio_led_overlay.dtbo
+
+.PHONY: all legacy platform dtbo app all-targets install-platform clean</code></pre>
+
+<h3>Makefile Variables</h3>
+<table>
+<tr><th>Variable</th><th>Default Value</th><th>Purpose</th></tr>
+<tr><td><code>obj-m</code></td><td>Module list</td><td>Kernel modules to build</td></tr>
+<tr><td><code>KERNEL_DIR</code></td><td><code>/lib/modules/$(uname -r)/build</code></td><td>Path to kernel headers</td></tr>
+<tr><td><code>DTC</code></td><td><code>dtc</code></td><td>Device tree compiler</td></tr>
+<tr><td><code>PWD</code></td><td>Current directory</td><td>Working directory</td></tr>
+</table>
+
+<h3>Makefile Targets</h3>
+<table>
+<tr><th>Target</th><th>Command</th><th>Purpose</th></tr>
+<tr><td><code>all</code></td><td><code>make</code></td><td>Build all kernel modules</td></tr>
+<tr><td><code>legacy</code></td><td><code>make legacy</code></td><td>Build only gpio_led_driver.ko</td></tr>
+<tr><td><code>platform</code></td><td><code>make platform</code></td><td>Build platform driver</td></tr>
+<tr><td><code>dtbo</code></td><td><code>make dtbo</code></td><td>Compile device tree overlay</td></tr>
+<tr><td><code>app</code></td><td><code>make app</code></td><td>Build user-space application</td></tr>
+<tr><td><code>all-targets</code></td><td><code>make all-targets</code></td><td>Build everything</td></tr>
+<tr><td><code>install-platform</code></td><td><code>make install-platform</code></td><td>Install platform driver</td></tr>
+<tr><td><code>clean</code></td><td><code>make clean</code></td><td>Remove build artifacts</td></tr>
+</table>
+
+<h3>Cross-Compilation</h3>
+<pre><code>make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KERNEL_DIR=/path/to/rpi-linux</code></pre>
+
+<hr>
+
+<h2>Architecture Diagram</h2>
+<div class="diagram">┌─────────────────────────────────────────────────────────────────┐
+│                         USER SPACE                               │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                    gpio_led_app.c                          │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │ │
+│  │  │ Interactive  │  │ Command-Line │  │ IOCTL Wrappers   │  │ │
+│  │  │    Menu      │  │    Parser    │  │ led_set_on()     │  │ │
+│  │  │              │  │              │  │ led_get_state()  │  │ │
+│  │  └──────────────┘  └──────────────┘  └──────────────────┘  │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              │                                   │
+│              open("/dev/gpio_led", O_RDWR)                       │
+│              ioctl(fd, GPIO_LED_SET_ON)                          │
+│              read(fd, buf, len)                                  │
+│              write(fd, "1", 1)                                   │
+│                              ↓                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                        KERNEL SPACE                              │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                  gpio_led_driver.c                         │ │
+│  │  ┌─────────────────┐  ┌─────────────────────────────────┐  │ │
+│  │  │ File Operations │  │      Private Data Structure     │  │ │
+│  │  │  .open          │  │  ┌─────────────────────────┐    │  │ │
+│  │  │  .release       │  │  │ dev_t devno             │    │  │ │
+│  │  │  .read          │  │  │ struct cdev             │    │  │ │
+│  │  │  .write         │  │  │ struct gpio_desc *gpio  │    │  │ │
+│  │  │  .unlocked_ioctl│  │  │ int led_state           │    │  │ │
+│  │  └─────────────────┘  │  │ struct mutex lock       │    │  │ │
+│  │                       │  │ struct timer_list       │    │  │ │
+│  │  ┌─────────────────┐  │  └─────────────────────────┘    │  │ │
+│  │  │ GPIO Helpers    │  └─────────────────────────────────┘  │ │
+│  │  │ gpio_led_set()  │                                       │ │
+│  │  │ gpio_led_get()  │  ┌─────────────────────────────────┐  │ │
+│  │  │ gpio_led_toggle │  │       Blink Timer               │  │ │
+│  │  └─────────────────┘  │  blink_timer_callback()         │  │ │
+│  │                       │  start_blink() / stop_blink()   │  │ │
+│  │                       └─────────────────────────────────┘  │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                              │                                   │
+│                     gpiod_set_value()                            │
+│                              ↓                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                         HARDWARE                                 │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                    Raspberry Pi 4                          │ │
+│  │  ┌──────────────────────────────────────────────────────┐  │ │
+│  │  │  BCM GPIO 23 (Physical Pin 16)                       │  │ │
+│  │  │              │                                        │  │ │
+│  │  │              ↓                                        │  │ │
+│  │  │         330Ω Resistor                                 │  │ │
+│  │  │              │                                        │  │ │
+│  │  │              ↓                                        │  │ │
+│  │  │         LED (Anode)                                   │  │ │
+│  │  │              │                                        │  │ │
+│  │  │              ↓                                        │  │ │
+│  │  │           GND                                         │  │ │
+│  │  └──────────────────────────────────────────────────────┘  │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘</div>
+
+<hr>
+
+<h2>Key Kernel Programming Concepts</h2>
+
+<h3>1. Character Device Driver Framework</h3>
+<div class="diagram">alloc_chrdev_region() → Get major:minor numbers
+         ↓
+    cdev_init()       → Initialize cdev structure
+         ↓
+     cdev_add()       → Register with kernel
+         ↓
+   class_create()     → Create /sys/class entry
+         ↓
+  device_create()     → Create /dev entry via udev</div>
+
+<h3>2. User-Kernel Data Transfer</h3>
+<table>
+<tr><th>Function</th><th>Direction</th><th>Usage</th></tr>
+<tr><td><code>copy_to_user(to, from, n)</code></td><td>Kernel → User</td><td>Returning data to user space</td></tr>
+<tr><td><code>copy_from_user(to, from, n)</code></td><td>User → Kernel</td><td>Getting data from user space</td></tr>
+</table>
+<p><strong>Always check return value</strong> - returns number of bytes NOT copied (0 = success).</p>
+
+<h3>3. Synchronization</h3>
+<ul>
+<li><strong>Mutex</strong>: Used for protecting shared state (<code>led_state</code>, GPIO access)</li>
+<li><strong>Timer context</strong>: Cannot use mutex in timer callbacks (softirq context)</li>
+</ul>
+
+<h3>4. Error Handling Pattern</h3>
+<pre><code>ret = function1();
+if (ret &lt; 0)
+    goto err_cleanup1;
+
+ret = function2();
+if (ret &lt; 0)
+    goto err_cleanup2;
+
+return 0;
+
+err_cleanup2:
+    undo_function1();
+err_cleanup1:
+    return ret;</code></pre>
+
+<hr>
+
+<h2>Usage Instructions</h2>
+
+<h3>Building the Driver</h3>
+<pre><code># Build kernel module
+make legacy
+
+# Build user-space application
+make app</code></pre>
+
+<h3>Loading the Driver</h3>
+<pre><code># Load the module
+sudo insmod gpio_led_driver.ko
+
+# Verify it's loaded
+lsmod | grep gpio_led
+
+# Check kernel messages
+dmesg | tail
+
+# Verify device node exists
+ls -la /dev/gpio_led</code></pre>
+
+<h3>Using the Application</h3>
+<pre><code># Interactive mode
+sudo ./gpio_led_app
+
+# Command-line mode
+sudo ./gpio_led_app on
+sudo ./gpio_led_app off
+sudo ./gpio_led_app toggle
+sudo ./gpio_led_app state
+sudo ./gpio_led_app blink 500
+sudo ./gpio_led_app stop</code></pre>
+
+<h3>Direct Device Access (Shell)</h3>
+<pre><code># Read LED state
+cat /dev/gpio_led
+
+# Set LED on
+echo 1 &gt; /dev/gpio_led
+
+# Set LED off
+echo 0 &gt; /dev/gpio_led</code></pre>
+
+<h3>Unloading the Driver</h3>
+<pre><code>sudo rmmod gpio_led_driver</code></pre>
+
+<hr>
+
+<h2>Error Codes Reference</h2>
+<table>
+<tr><th>Error</th><th>Value</th><th>Meaning</th></tr>
+<tr><td><code>-ENOMEM</code></td><td>-12</td><td>Out of memory</td></tr>
+<tr><td><code>-ENODEV</code></td><td>-19</td><td>No such device</td></tr>
+<tr><td><code>-EINVAL</code></td><td>-22</td><td>Invalid argument</td></tr>
+<tr><td><code>-EFAULT</code></td><td>-14</td><td>Bad address (copy_to/from_user failed)</td></tr>
+<tr><td><code>-ENOTTY</code></td><td>-25</td><td>Invalid ioctl command</td></tr>
+</table>
+
+<hr>
+
+<h2>Summary</h2>
+<p>This project demonstrates:</p>
+<ol>
+<li><strong>Linux kernel module development</strong> - Module init/exit, licensing, metadata</li>
+<li><strong>Character device drivers</strong> - cdev framework, file operations</li>
+<li><strong>GPIO subsystem</strong> - Legacy and descriptor-based APIs</li>
+<li><strong>IOCTL interface</strong> - Command definition and handling</li>
+<li><strong>Kernel timers</strong> - Periodic callbacks for blinking</li>
+<li><strong>Synchronization</strong> - Mutex for thread safety</li>
+<li><strong>User-kernel communication</strong> - copy_to_user, copy_from_user</li>
+<li><strong>Error handling</strong> - goto-based cleanup chains</li>
+<li><strong>Build system</strong> - Kernel module Makefile</li>
+</ol>
+
+<hr>
+<p><em>Document generated for Linux Kernel Practical 1 - GPIO LED Driver Project</em></p>
+
+</body>
+</html>
